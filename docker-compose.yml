@@ -1,0 +1,119 @@
+version: '3.8'
+
+services:
+  # Redis for task queue and caching
+  redis:
+    image: redis:7-alpine
+    container_name: pdf2md-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # Backend API server
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: pdf2md-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - DEBUG=false
+      - HOST=0.0.0.0
+      - PORT=8000
+      - DATABASE_URL=sqlite:///app/data/pdf2md.db
+      - REDIS_URL=redis://redis:6379/0
+      - UPLOAD_DIR=/app/uploads
+      - OUTPUT_DIR=/app/outputs
+      - TEMP_DIR=/app/temp
+      - DEFAULT_OCR_ENGINE=paddleocr_mobile
+      - PADDLEOCR_USE_GPU=false
+      - MAX_WORKERS=4
+      - BATCH_SIZE=10
+    volumes:
+      - ./uploads:/app/uploads
+      - ./outputs:/app/outputs
+      - ./temp:/app/temp
+      - backend_data:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Frontend React app
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: pdf2md-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    environment:
+      - REACT_APP_API_URL=http://localhost:8000
+    depends_on:
+      - backend
+
+  # Celery worker for background tasks (optional but recommended)
+  celery-worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: pdf2md-celery
+    restart: unless-stopped
+    command: celery -A app.celery_app worker --loglevel=info --concurrency=4
+    environment:
+      - DEBUG=false
+      - DATABASE_URL=sqlite:///app/data/pdf2md.db
+      - REDIS_URL=redis://redis:6379/0
+      - UPLOAD_DIR=/app/uploads
+      - OUTPUT_DIR=/app/outputs
+      - TEMP_DIR=/app/temp
+      - DEFAULT_OCR_ENGINE=paddleocr_mobile
+      - PADDLEOCR_USE_GPU=false
+      - MAX_WORKERS=4
+      - BATCH_SIZE=10
+    volumes:
+      - ./uploads:/app/uploads
+      - ./outputs:/app/outputs
+      - ./temp:/app/temp
+      - backend_data:/app/data
+    depends_on:
+      - redis
+      - backend
+
+  # Celery beat for scheduled tasks (optional)
+  celery-beat:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: pdf2md-celery-beat
+    restart: unless-stopped
+    command: celery -A app.celery_app beat --loglevel=info
+    environment:
+      - DEBUG=false
+      - DATABASE_URL=sqlite:///app/data/pdf2md.db
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - backend_data:/app/data
+    depends_on:
+      - redis
+      - backend
+
+volumes:
+  redis_data:
+  backend_data:
