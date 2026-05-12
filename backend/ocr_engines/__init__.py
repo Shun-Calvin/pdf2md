@@ -60,6 +60,11 @@ class OCREngineFactory:
         elif engine_type == 'cloud':
             return CloudOCREngine(config)
             
+        elif engine_type == 'docling':
+            # Docling OCR adapter
+            from parsers.docling_parser import DoclingOCRAdapter
+            return DoclingOCRAdapter(**config)
+            
         else:
             raise ValueError(f"Unknown OCR engine type: {engine_type}")
     
@@ -71,6 +76,7 @@ class OCREngineFactory:
             'paddleocr_server': False,
             'tesseract': False,
             'cloud': False,
+            'docling': False,
         }
         
         # Test PaddleOCR
@@ -92,6 +98,13 @@ class OCREngineFactory:
         try:
             import boto3
             engines['cloud'] = True
+        except ImportError:
+            pass
+        
+        # Test Docling
+        try:
+            import docling
+            engines['docling'] = True
         except ImportError:
             pass
         

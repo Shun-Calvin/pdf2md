@@ -54,6 +54,19 @@ class Settings(BaseSettings):
     MAX_WORKERS: int = 4
     BATCH_SIZE: int = 10
     
+    # Docling Settings
+    USE_DOCLING: bool = False
+    DOCLING_OCR_ENGINE: str = "tesseract"  # tesseract, easyocr
+    DOCLING_ENABLE_TABLE_DETECTION: bool = True
+    DOCLING_ENABLE_FIGURE_DETECTION: bool = True
+    DOCLING_ENABLE_LAYOUT_ANALYSIS: bool = True
+    
+    # Open Data Loader Settings
+    USE_OPEN_DATA_LOADER: bool = False
+    ODL_BATCH_SIZE: int = 4
+    ODL_NUM_WORKERS: int = 2
+    ODL_ENABLE_STREAMING: bool = False
+    
     class Config:
         env_file = ".env"
         case_sensitive = True

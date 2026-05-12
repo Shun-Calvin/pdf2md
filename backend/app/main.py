@@ -21,6 +21,7 @@ from app.config import settings
 from ocr_engines import OCREngineFactory
 from utils.pdf_processor import PDFProcessor
 from utils.image_description import ImageDescriptionService
+from app.routers import parsers as parsers_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -58,6 +59,9 @@ async def validation_exception_handler(request, exc):
 # Static files
 app.mount("/uploads", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads")
 app.mount("/outputs", StaticFiles(directory=settings.OUTPUT_DIR), name="outputs")
+
+# Include routers
+app.include_router(parsers_router.router)
 
 # Initialize database
 @app.on_event("startup")
@@ -115,6 +119,15 @@ async def upload_pdfs(
     openai_compatible_model: Optional[str] = Form(default=None),
     enable_vector_embedding: bool = Form(default=False),
     vector_embedding_model: Optional[str] = Form(default="clip"),
+    # Parser selection parameters
+    parser_type: str = Form(default="standard"),
+    docling_enable_table_detection: bool = Form(default=True),
+    docling_enable_figure_detection: bool = Form(default=True),
+    docling_enable_layout_analysis: bool = Form(default=True),
+    docling_ocr_engine: str = Form(default="tesseract"),
+    odl_batch_size: int = Form(default=4),
+    odl_num_workers: int = Form(default=2),
+    odl_enable_streaming: bool = Form(default=False),
     client_id: Optional[str] = Form(default=None),
     db: Session = Depends(get_db)
 ):
@@ -185,6 +198,14 @@ async def upload_pdfs(
                 "openai_compatible_model": openai_compatible_model if openai_compatible_model else None,
                 "enable_vector_embedding": enable_vector_embedding,
                 "vector_embedding_model": vector_embedding_model,
+                "parser_type": parser_type,
+                "docling_enable_table_detection": docling_enable_table_detection,
+                "docling_enable_figure_detection": docling_enable_figure_detection,
+                "docling_enable_layout_analysis": docling_enable_layout_analysis,
+                "docling_ocr_engine": docling_ocr_engine,
+                "odl_batch_size": odl_batch_size,
+                "odl_num_workers": odl_num_workers,
+                "odl_enable_streaming": odl_enable_streaming,
             },
             client_id
         )
@@ -418,12 +439,53 @@ async def process_pdf_task(
             )
             ocr_engine.initialize()
         
-        # Initialize PDF processor
+        # Initialize parser based on selection
+        parser_type = options.get("parser_type", "standard")
+        use_docling = parser_type == "docling" or options.get("use_docling", False)
+        use_odl = parser_type == "odl_batch" or options.get("use_open_data_loader", False)
+        
+        # Initialize PDF processor (used as fallback or for standard processing)
         processor = PDFProcessor(
             enable_image_dedup=options.get("deduplicate_images", False),
             dedup_threshold=settings.IMAGE_DEDUP_THRESHOLD,
             hash_size=settings.IMAGE_DEDUP_HASH_SIZE
         )
+        
+        # Initialize Docling parser if selected
+        docling_parser = None
+        if use_docling:
+            try:
+                from parsers.docling_parser import DoclingParser
+                docling_parser = DoclingParser(
+                    enable_ocr=options.get("use_ocr", False),
+                    ocr_engine=options.get("docling_ocr_engine", "tesseract"),
+                    enable_table_detection=options.get("docling_enable_table_detection", True),
+                    enable_figure_detection=options.get("docling_enable_figure_detection", True),
+                    enable_layout_analysis=options.get("docling_enable_layout_analysis", True)
+                )
+                logger.info("Initialized Docling parser for PDF processing")
+            except Exception as e:
+                logger.warning(f"Failed to initialize Docling parser: {e}. Falling back to standard parser.")
+                use_docling = False
+        
+        # Initialize Open Data Loader processor if selected
+        odl_processor = None
+        if use_odl:
+            try:
+                from parsers.open_data_loader import BatchDocumentProcessor
+                odl_processor = BatchDocumentProcessor(
+                    batch_size=options.get("odl_batch_size", settings.ODL_BATCH_SIZE),
+                    num_workers=options.get("odl_num_workers", settings.ODL_NUM_WORKERS),
+                    use_docling=use_docling,  # Use Docling if selected
+                    extract_images=options.get("extract_images", True),
+                    extract_tables=options.get("extract_tables", True),
+                    use_ocr=options.get("use_ocr", False),
+                    ocr_engine=ocr_engine
+                )
+                logger.info("Initialized Open Data Loader processor for PDF processing")
+            except Exception as e:
+                logger.warning(f"Failed to initialize Open Data Loader processor: {e}. Falling back to standard processing.")
+                use_odl = False
         
         # Get total pages first
         import fitz
@@ -473,22 +535,102 @@ async def process_pdf_task(
             from PIL import Image
             img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
 
-            # Process based on whether OCR is needed
-            if options.get("use_ocr") and ocr_engine:
-                page_result = ocr_engine.process_pdf_page(img, page_num + 1)
-            else:
-                # Direct text extraction
-                text = fitz_page.get_text()
+            # Actually process the page using selected parser
+            if use_docling and docling_parser:
+                # Use Docling parser
+                page_elements = docling_parser.parse_document(
+                    pdf_file.file_path,
+                    extract_images=options.get("extract_images", True),
+                    extract_tables=options.get("extract_tables", True)
+                )
+                # Convert Docling elements to page result format
+                page_text = "\n".join([elem.content for elem in page_elements if elem.element_type in ['text', 'heading']])
+                page_markdown = docling_parser.convert_to_markdown(page_elements)
+                
+                # Convert PIL images to ExtractedImage objects
+                from utils.pdf_processor import ExtractedImage as ExtractedImageData
+                import hashlib
+                
+                extracted_images = []
+                for elem in page_elements:
+                    if elem.element_type == 'image' and elem.image:
+                        pil_img = elem.image
+                        # Convert to RGB if necessary
+                        if pil_img.mode in ('RGBA', 'LA', 'P'):
+                            pil_img = pil_img.convert('RGB')
+                        
+                        # Calculate hash
+                        img_hash = hashlib.md5(pil_img.tobytes()).hexdigest()
+                        
+                        # Create ExtractedImage with the image and metadata
+                        ext_img = ExtractedImageData(
+                            image=pil_img,
+                            page_number=page_num + 1,
+                            bbox=elem.bbox or (0, 0, pil_img.width, pil_img.height),
+                            image_type='image',
+                            hash=img_hash,
+                            is_duplicate=False
+                        )
+                        extracted_images.append(ext_img)
+                
                 page_result = type('obj', (object,), {
                     'page_number': page_num + 1,
-                    'text': text,
-                    'markdown': text,
-                    'images': [],
+                    'text': page_text,
+                    'markdown': page_markdown,
+                    'images': extracted_images,
                     'tables': [],
-                    'has_images': False,
-                    'has_tables': False,
+                    'has_images': len(extracted_images) > 0,
+                    'has_tables': len([elem for elem in page_elements if elem.element_type == 'table']) > 0,
                     'has_drawings': False
                 })()
+            elif use_odl and odl_processor:
+                # Use Open Data Loader for single file processing
+                odl_result = odl_processor.process_single(pdf_file.file_path, str(pdf_id))
+                if odl_result.success:
+                    page_result = type('obj', (object,), {
+                        'page_number': page_num + 1,
+                        'text': odl_result.markdown,  # Simplified - in reality would need to split by page
+                        'markdown': odl_result.markdown,
+                        'images': [],
+                        'tables': [],
+                        'has_images': False,
+                        'has_tables': False,
+                        'has_drawings': False
+                    })()
+                else:
+                    # Fallback to standard processing on error
+                    if options.get("use_ocr") and ocr_engine:
+                        page_result = ocr_engine.process_pdf_page(img, page_num + 1)
+                    else:
+                        # Direct text extraction
+                        text = fitz_page.get_text()
+                        page_result = type('obj', (object,), {
+                            'page_number': page_num + 1,
+                            'text': text,
+                            'markdown': text,
+                            'images': [],
+                            'tables': [],
+                            'has_images': False,
+                            'has_tables': False,
+                            'has_drawings': False
+                        })()
+            else:
+                # Use standard processor
+                if options.get("use_ocr") and ocr_engine:
+                    page_result = ocr_engine.process_pdf_page(img, page_num + 1)
+                else:
+                    # Direct text extraction
+                    text = fitz_page.get_text()
+                    page_result = type('obj', (object,), {
+                        'page_number': page_num + 1,
+                        'text': text,
+                        'markdown': text,
+                        'images': [],
+                        'tables': [],
+                        'has_images': False,
+                        'has_tables': False,
+                        'has_drawings': False
+                    })()
             
             # Extract images from PDF page if enabled
             if options.get("extract_images"):

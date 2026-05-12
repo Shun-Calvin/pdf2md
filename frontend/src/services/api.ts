@@ -8,52 +8,63 @@ const api = axios.create({
 });
 
 export const uploadFiles = async (
-  files: File[],
-  options: ProcessingOptions,
-  onProgress?: (progress: number) => void
+   files: File[],
+   options: ProcessingOptions,
+   onProgress?: (progress: number) => void
 ): Promise<{ files: PDFFile[] }> => {
-  const formData = new FormData();
-  
-  files.forEach(file => {
-    formData.append('files', file);
-  });
-  
-  // Add all options to form data
-  formData.append('use_ocr', String(options.use_ocr ?? true));
-  formData.append('ocr_engine', options.ocr_engine);
-  formData.append('cloud_ocr_provider', options.cloud_ocr_provider || '');
-  formData.append('aws_access_key_id', options.aws_access_key_id || '');
-  formData.append('aws_secret_access_key', options.aws_secret_access_key || '');
-  formData.append('aws_region', options.aws_region || 'us-east-1');
-  formData.append('extract_images', String(options.extract_images ?? true));
-  formData.append('extract_tables', String(options.extract_tables ?? true));
-  formData.append('extract_drawings', String(options.extract_drawings ?? true));
-  formData.append('deduplicate_images', String(options.deduplicate_images ?? false));
-  formData.append('describe_images', String(options.describe_images ?? false));
-  formData.append('describe_tables', String(options.describe_tables ?? false));
-  formData.append('replace_text_with_description', String(options.replace_text_with_description ?? false));
-  formData.append('image_description_provider', options.image_description_provider || 'openai_compatible');
-  formData.append('image_description_concurrent', String(options.image_description_concurrent ?? 5));
-  formData.append('image_description_prompt', options.image_description_prompt || '');
-  formData.append('enable_vector_embedding', String(options.enable_vector_embedding ?? false));
-  formData.append('vector_embedding_model', options.vector_embedding_model || 'clip');
-  formData.append('openai_compatible_api_key', options.openai_compatible_api_key || '');
-  formData.append('openai_compatible_base_url', options.openai_compatible_base_url || '');
-  formData.append('openai_compatible_model', options.openai_compatible_model || '');
-  if (options.client_id) {
-    formData.append('client_id', options.client_id);
-  }
-
-  const response = await api.post('/upload', formData, {
-    onUploadProgress: (progressEvent) => {
-      if (onProgress && progressEvent.total) {
-        const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-        onProgress(progress);
-      }
-    },
-  });
-
-  return response.data;
+   const formData = new FormData();
+   
+   files.forEach(file => {
+       formData.append('files', file);
+   });
+   
+   // Add all options to form data
+   formData.append('use_ocr', String(options.use_ocr ?? true));
+   formData.append('ocr_engine', options.ocr_engine);
+   formData.append('cloud_ocr_provider', options.cloud_ocr_provider || '');
+   formData.append('aws_access_key_id', options.aws_access_key_id || '');
+   formData.append('aws_secret_access_key', options.aws_secret_access_key || '');
+   formData.append('aws_region', options.aws_region || 'us-east-1');
+   formData.append('extract_images', String(options.extract_images ?? true));
+   formData.append('extract_tables', String(options.extract_tables ?? true));
+   formData.append('extract_drawings', String(options.extract_drawings ?? true));
+   formData.append('deduplicate_images', String(options.deduplicate_images ?? false));
+   formData.append('describe_images', String(options.describe_images ?? false));
+   formData.append('describe_tables', String(options.describe_tables ?? false));
+   formData.append('replace_text_with_description', String(options.replace_text_with_description ?? false));
+   formData.append('image_description_provider', options.image_description_provider || 'openai_compatible');
+   formData.append('image_description_concurrent', String(options.image_description_concurrent ?? 5));
+   formData.append('image_description_prompt', options.image_description_prompt || '');
+   formData.append('enable_vector_embedding', String(options.enable_vector_embedding ?? false));
+   formData.append('vector_embedding_model', options.vector_embedding_model || 'clip');
+   formData.append('openai_compatible_api_key', options.openai_compatible_api_key || '');
+   formData.append('openai_compatible_base_url', options.openai_compatible_base_url || '');
+   formData.append('openai_compatible_model', options.openai_compatible_model || '');
+   
+   // Add parser options
+   formData.append('parser_type', options.parser_type || 'standard');
+   formData.append('docling_enable_table_detection', String(options.docling_enable_table_detection ?? true));
+   formData.append('docling_enable_figure_detection', String(options.docling_enable_figure_detection ?? true));
+   formData.append('docling_enable_layout_analysis', String(options.docling_enable_layout_analysis ?? true));
+   formData.append('docling_ocr_engine', options.docling_ocr_engine || 'tesseract');
+   formData.append('odl_batch_size', String(options.odl_batch_size ?? 4));
+   formData.append('odl_num_workers', String(options.odl_num_workers ?? 2));
+   formData.append('odl_enable_streaming', String(options.odl_enable_streaming ?? false));
+   
+   if (options.client_id) {
+       formData.append('client_id', options.client_id);
+   }
+   
+   const response = await api.post('/upload', formData, {
+       onUploadProgress: (progressEvent) => {
+           if (onProgress && progressEvent.total) {
+               const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+               onProgress(progress);
+           }
+       },
+   });
+   
+   return response.data;
 };
 
 export const getFiles = async (status?: string): Promise<PDFFile[]> => {
@@ -125,6 +136,90 @@ export const testCloudOCRConnection = async (
   if (awsRegion) formData.append('aws_region', awsRegion);
   
   const response = await api.post('/test-connection/cloud-ocr', formData);
+  return response.data;
+};
+
+// New parser API endpoints
+export const getAvailableParsers = async (): Promise<any> => {
+  const response = await api.get('/parsers/available');
+  return response.data;
+};
+
+export const parseWithParser = async (
+  fileId: number,
+  parserType: string,
+  extractImages: boolean = true,
+  extractTables: boolean = true,
+  useOcr: boolean = false
+): Promise<any> => {
+  const params = new URLSearchParams();
+  params.append('parser_type', parserType);
+  params.append('extract_images', String(extractImages));
+  params.append('extract_tables', String(extractTables));
+  params.append('use_ocr', String(useOcr));
+  
+  const response = await api.post(`/parsers/parse/${fileId}`, null, { params });
+  return response.data;
+};
+
+export const parseBatch = async (
+  fileIds: number[],
+  parserType: string,
+  extractImages: boolean = true,
+  extractTables: boolean = true,
+  useOcr: boolean = false
+): Promise<any> => {
+  const params = new URLSearchParams();
+  params.append('parser_type', parserType);
+  params.append('extract_images', String(extractImages));
+  params.append('extract_tables', String(extractTables));
+  params.append('use_ocr', String(useOcr));
+  
+  const response = await api.post('/parsers/parse-batch', { file_ids: fileIds }, { params });
+  return response.data;
+};
+
+export const getParserSettings = async (): Promise<any> => {
+  const response = await api.get('/parsers/settings');
+  return response.data;
+};
+
+export const reprocessFile = async (
+  fileId: number,
+  parserType?: string,
+  extractImages: boolean = true,
+  extractTables: boolean = true,
+  useOcr: boolean = false
+): Promise<any> => {
+  const params = new URLSearchParams();
+  if (parserType) params.append('parser_type', parserType);
+  params.append('extract_images', String(extractImages));
+  params.append('extract_tables', String(extractTables));
+  params.append('use_ocr', String(useOcr));
+  
+  const response = await api.post(`/parsers/reprocess/${fileId}`, null, { params });
+  return response.data;
+};
+
+export const compareParsers = async (
+  fileId: number,
+  parsers: string[]
+): Promise<any> => {
+  const params = new URLSearchParams();
+  parsers.forEach(parser => params.append('parsers', parser));
+  
+  const response = await api.get(`/parsers/compare/${fileId}`, { params });
+  return response.data;
+};
+
+// Dependency management
+export const checkDependencies = async (): Promise<any> => {
+  const response = await api.get('/parsers/check-dependencies');
+  return response.data;
+};
+
+export const installDocling = async (): Promise<any> => {
+  const response = await api.post('/parsers/install-docling');
   return response.data;
 };
 

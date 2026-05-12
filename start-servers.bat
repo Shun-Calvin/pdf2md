@@ -10,7 +10,7 @@ echo [1/2] Starting Backend Server (FastAPI)...
 echo         URL: http://localhost:8000
 echo         API Docs: http://localhost:8000/docs
 echo.
-start "Backend Server" cmd /k "cd /d C:\Users\USER\Documents\pdf2md\backend && venv\Scripts\python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000"
+start "Backend Server" cmd /k "cd /d C:\Users\USER\Documents\pdf2md\pdf2md\backend && venv\Scripts\python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000"
 
 :: Wait a bit for backend to start
 timeout /t 3 /nobreak >nul
@@ -19,7 +19,7 @@ timeout /t 3 /nobreak >nul
 echo [2/2] Starting Frontend Server (React)...
 echo         URL: http://localhost:3000
 echo.
-start "Frontend Server" cmd /k "cd /d C:\Users\USER\Documents\pdf2md\frontend && npm start"
+start "Frontend Server" cmd /k "cd /d C:\Users\USER\Documents\pdf2md\pdf2md\frontend && npm start"
 
 echo.
 echo ========================================

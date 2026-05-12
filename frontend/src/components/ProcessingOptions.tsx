@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Settings, 
   FileImage, 
@@ -17,10 +17,18 @@ import {
   Info,
   Key,
   Globe,
-  Box
+  Box,
+  Download,
+  CheckCircle2,
+  RefreshCw
 } from 'lucide-react';
 import { ProcessingOptions as Options, OCRStatus } from '../types';
-import { testImageDescriptionConnection, testCloudOCRConnection } from '../services/api';
+import { 
+  testImageDescriptionConnection, 
+  testCloudOCRConnection,
+  checkDependencies,
+  installDocling 
+} from '../services/api';
 import toast from 'react-hot-toast';
 
 interface ProcessingOptionsProps {
@@ -138,6 +146,56 @@ const ProcessingOptionsPanel: React.FC<ProcessingOptionsProps> = ({
 }) => {
   const [testingImageDesc, setTestingImageDesc] = useState(false);
   const [testingCloudOCR, setTestingCloudOCR] = useState(false);
+  const [checkingDependencies, setCheckingDependencies] = useState(false);
+  const [installing, setInstalling] = useState(false);
+  const [dependencies, setDependencies] = useState<any>({
+    docling: { installed: false },
+    open_data_loader: { installed: false }
+  });
+
+  // Check dependencies on mount
+  useEffect(() => {
+    const checkDeps = async () => {
+      setCheckingDependencies(true);
+      try {
+        const result = await checkDependencies();
+        setDependencies(result);
+      } catch (error) {
+        console.error('Failed to check dependencies:', error);
+      } finally {
+        setCheckingDependencies(false);
+      }
+    };
+    
+    checkDeps();
+  }, []);
+
+  // Install Docling function
+  const handleInstallDocling = async () => {
+    setInstalling(true);
+    
+    try {
+      const result = await installDocling();
+      
+      if (result.success) {
+        toast.success(result.message, {
+          icon: result.already_installed ? '✅' : '🎉',
+          duration: 5000
+        });
+        
+        // Refresh dependencies check
+        const updatedDeps = await checkDependencies();
+        setDependencies(updatedDeps);
+      } else {
+        toast.error(result.message, { icon: '❌' });
+      }
+    } catch (error) {
+      console.error('Failed to install docling:', error);
+      toast.error('Failed to install Docling. Please try again.', { icon: '❌' });
+    } finally {
+      setInstalling(false);
+    }
+  };
 
   const handleTestImageDescription = async () => {
     if (options.image_description_provider === 'openai_compatible' && !options.openai_compatible_api_key) {
@@ -230,6 +288,238 @@ const ProcessingOptionsPanel: React.FC<ProcessingOptionsProps> = ({
       </div>
 
       <div className="divide-y divide-gray-100">
+        {/* Parser Selection */}
+        <Section 
+          title="Document Parser" 
+          icon={<FileImage className="h-5 w-5" />}
+          badge="Advanced Processing"
+          defaultOpen={false}
+        >
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Parser Engine
+              </label>
+              <div className="relative">
+                <select
+                  value={options.parser_type || 'standard'}
+                  onChange={(e) => onChange({ 
+                    parser_type: e.target.value as Options['parser_type']
+                  })}
+                  className="w-full rounded-lg border border-gray-300 pl-10 pr-4 py-2.5 
+                            text-sm focus:border-blue-500 focus:ring-blue-500 
+                            transition-colors appearance-none bg-white"
+                >
+                  <option value="standard">Standard (PyMuPDF + pdfplumber)</option>
+                  <option value="docling">Docling (Advanced Layout Analysis)</option>
+                  <option value="odl_batch">Open Data Loader (Batch Processing)</option>
+                </select>
+                <div className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400">
+                  <Settings className="h-4 w-4" />
+                </div>
+                <ChevronDown className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
+              </div>
+            </div>
+            
+            {/* Docling Settings */}
+            {options.parser_type === 'docling' && (
+              <div className="mt-4 space-y-4 p-4 bg-blue-50 rounded-xl border border-blue-100">
+                {/* Docling Installation Status */}
+                {!dependencies.docling.installed && (
+                  <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                    <div className="flex items-start space-x-3 mb-3">
+                      <AlertCircle className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <h4 className="font-medium text-yellow-800">Docling Not Installed</h4>
+                        <p className="text-sm text-yellow-700 mt-1">
+                          Install Docling to access advanced document understanding features
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={handleInstallDocling}
+                      disabled={installing || checkingDependencies}
+                      className="w-full flex items-center justify-center space-x-2 py-2.5 px-4 
+                               bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 
+                               disabled:bg-gray-300 disabled:cursor-not-allowed 
+                               transition-all text-sm font-medium"
+                    >
+                      {installing ? (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          <span>Installing Docling...</span>
+                        </>
+                      ) : checkingDependencies ? (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          <span>Checking dependencies...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Download className="h-4 w-4" />
+                          <span>Install Docling Now</span>
+                        </>
+                      )}
+                    </button>
+                    <button
+                      onClick={async () => {
+                        setCheckingDependencies(true);
+                        try {
+                          const result = await checkDependencies();
+                          setDependencies(result);
+                        } finally {
+                          setCheckingDependencies(false);
+                        }
+                      }}
+                      className="w-full mt-2 flex items-center justify-center space-x-2 py-2 px-4 
+                               text-yellow-700 hover:text-yellow-800 
+                               hover:bg-yellow-100/50 rounded-lg 
+                               transition-all text-sm font-medium"
+                    >
+                      <RefreshCw className={`h-4 w-4 ${checkingDependencies ? 'animate-spin' : ''}`} />
+                      <span>Check Again</span>
+                    </button>
+                  </div>
+                )}
+                
+                {/* Docling is installed */}
+                {dependencies.docling.installed && (
+                  <div className="p-3 bg-green-50 border border-green-200 rounded-lg mb-3">
+                    <div className="flex items-center space-x-2">
+                      <CheckCircle2 className="h-5 w-5 text-green-600 flex-shrink-0" />
+                      <div>
+                        <h4 className="font-medium text-green-800">
+                          Docling {dependencies.docling.version || 'v2.x'} Installed
+                        </h4>
+                        <p className="text-sm text-green-700">
+                          Advanced document features are available
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                
+                <div className="flex items-start space-x-2 p-3">
+                  <Info className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-medium text-gray-700">Docling Features</p>
+                    <p className="text-sm text-gray-600">
+                      Advanced document understanding with layout analysis, table detection, and figure extraction
+                    </p>
+                  </div>
+                </div>
+                
+                <Toggle
+                  id="doclingTableDetection"
+                  checked={options.docling_enable_table_detection ?? true}
+                  onChange={(checked) => onChange({ docling_enable_table_detection: checked })}
+                  label="Table Detection"
+                  description="Extract tables with structure preservation"
+                />
+                
+                <Toggle
+                  id="doclingFigureDetection"
+                  checked={options.docling_enable_figure_detection ?? true}
+                  onChange={(checked) => onChange({ docling_enable_figure_detection: checked })}
+                  label="Figure Detection"
+                  description="Extract images and figures from document"
+                />
+                
+                <Toggle
+                  id="doclingLayoutAnalysis"
+                  checked={options.docling_enable_layout_analysis ?? true}
+                  onChange={(checked) => onChange({ docling_enable_layout_analysis: checked })}
+                  label="Layout Analysis"
+                  description="Analyze document structure (headers, paragraphs, lists)"
+                />
+                
+                <div className="mt-3">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    OCR Engine
+                  </label>
+                  <div className="relative">
+                    <select
+                      value={options.docling_ocr_engine ?? 'tesseract'}
+                      onChange={(e) => onChange({ 
+                        docling_ocr_engine: e.target.value as Options['docling_ocr_engine']
+                      })}
+                      className="w-full rounded-lg border border-gray-300 pl-10 pr-4 py-2.5 
+                                text-sm focus:border-blue-500 focus:ring-blue-500 
+                                transition-colors appearance-none bg-white"
+                    >
+                      <option value="tesseract">Tesseract OCR</option>
+                      <option value="easyocr">EasyOCR</option>
+                    </select>
+                    <div className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400">
+                      <Scan className="h-4 w-4" />
+                    </div>
+                    <ChevronDown className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {/* Open Data Loader Settings */}
+            {options.parser_type === 'odl_batch' && (
+              <div className="mt-4 space-y-4 p-4 bg-green-50 rounded-xl border border-green-100">
+                <div className="flex items-start space-x-2 p-3">
+                  <Info className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-medium text-gray-700">Batch Processing</p>
+                    <p className="text-sm text-gray-600">
+                      Process multiple documents in parallel with progress tracking
+                    </p>
+                  </div>
+                </div>
+                
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Batch Size
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="16"
+                      value={options.odl_batch_size ?? 4}
+                      onChange={(e) => onChange({ 
+                        odl_batch_size: parseInt(e.target.value)
+                      })}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 
+                                text-sm focus:border-blue-500 focus:ring-blue-500"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Parallel Workers
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="8"
+                      value={options.odl_num_workers ?? 2}
+                      onChange={(e) => onChange({ 
+                        odl_num_workers: parseInt(e.target.value)
+                      })}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 
+                                text-sm focus:border-blue-500 focus:ring-blue-500"
+                    />
+                  </div>
+                  
+                  <Toggle
+                    id="odlStreaming"
+                    checked={options.odl_enable_streaming ?? false}
+                    onChange={(checked) => onChange({ odl_enable_streaming: checked })}
+                    label="Streaming Mode"
+                    description="Process documents as a stream for large document sets"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        </Section>
+        
         {/* OCR Settings */}
         <Section 
           title="Text Extraction (OCR)" 

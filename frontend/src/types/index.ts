@@ -13,28 +13,42 @@ export interface PDFFile {
 }
 
 export interface ProcessingOptions {
-  use_ocr: boolean;
-  ocr_engine: 'paddleocr_mobile' | 'paddleocr_server' | 'tesseract' | 'cloud' | 'none';
-  cloud_ocr_provider?: 'aws' | 'azure' | 'google';
-  aws_access_key_id?: string;
-  aws_secret_access_key?: string;
-  aws_region?: string;
-  extract_images: boolean;
-  extract_tables: boolean;
-  extract_drawings: boolean;
-  deduplicate_images: boolean;
-  describe_images: boolean;
-  describe_tables: boolean;
-  replace_text_with_description: boolean;
-  image_description_provider: 'openai' | 'openai_compatible';
-  image_description_concurrent: number;
-  image_description_prompt?: string;
-  openai_compatible_api_key?: string;
-  openai_compatible_base_url?: string;
-  openai_compatible_model?: string;
-  enable_vector_embedding: boolean;
-  vector_embedding_model?: string;
-  client_id?: string;
+   use_ocr: boolean;
+   ocr_engine: 'paddleocr_mobile' | 'paddleocr_server' | 'tesseract' | 'cloud' | 'none' | 'docling';
+   cloud_ocr_provider?: 'aws' | 'azure' | 'google';
+   aws_access_key_id?: string;
+   aws_secret_access_key?: string;
+   aws_region?: string;
+   extract_images: boolean;
+   extract_tables: boolean;
+   extract_drawings: boolean;
+   deduplicate_images: boolean;
+   describe_images: boolean;
+   describe_tables: boolean;
+   replace_text_with_description: boolean;
+   image_description_provider: 'openai' | 'openai_compatible';
+   image_description_concurrent: number;
+   image_description_prompt?: string;
+   openai_compatible_api_key?: string;
+   openai_compatible_base_url?: string;
+   openai_compatible_model?: string;
+   enable_vector_embedding: boolean;
+   vector_embedding_model?: string;
+   client_id?: string;
+   
+   // Parser Selection
+   parser_type?: 'standard' | 'docling' | 'odl_batch';
+   
+   // Docling Settings
+   docling_enable_table_detection?: boolean;
+   docling_enable_figure_detection?: boolean;
+   docling_enable_layout_analysis?: boolean;
+   docling_ocr_engine?: 'tesseract' | 'easyocr';
+   
+   // Open Data Loader Settings
+   odl_batch_size?: number;
+   odl_num_workers?: number;
+   odl_enable_streaming?: boolean;
 }
 
 export interface OCRStatus {
