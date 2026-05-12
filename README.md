@@ -40,7 +40,7 @@ A comprehensive PDF to Markdown conversion framework with OCR capabilities, imag
 
 ```bash
 # Clone the repository
-git clone <repository-url>
+git clone https://github.com/Shun-Calvin/pdf2md
 cd pdf2md
 
 # Start all services
